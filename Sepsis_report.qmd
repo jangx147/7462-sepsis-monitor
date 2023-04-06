@@ -1,0 +1,183 @@
+---
+title: "Sepsis: Report"
+author: "Subin Jang"
+format: 
+ html:
+    theme: simplex
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+  echo: true
+editor: visual
+---
+
+### **ICU status report**
+
+```{r}
+#| echo: false
+#| message: false
+
+library(googledrive)
+library(tidyverse)
+library(lubridate)
+source("sepsis_monitor_functions.R")
+
+## Calling drive_deauth() prevents R from trying to authenticate via a browser
+## This is needed to make the GitHub Action work
+drive_deauth()
+file_link <- "https://drive.google.com/file/d/1H28fF1ZBD32QWm2ZBglORVwwzuZSLMu9/view"
+
+## All data up until now
+new_data <- updateData(file_link)
+
+## Include only most recent data
+most_recent_data <- new_data %>%
+  group_by(PatientID) %>%
+  filter(obsTime == max(obsTime))
+```
+
+### *This report was created on **`r Sys.time()`***
+
+#### A table listing the patients who currently have sepsis (if any), along with their most recent heart rate, temperature, and respiratory rate
+
+```{r}
+#| echo: false
+#| message: false
+
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(tibble)
+library(gt)
+
+most_recent_data %>% 
+  filter(SepsisLabel == 1) %>%
+  ungroup() %>%
+  gt()
+```
+
+#### Plots for all patients who have sepsis (if any) that show the complete history of their heart rate, temperature, and respiratory rate during their time in the ICU.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+library(ggplot2)
+
+sepsisPatient <- most_recent_data %>%
+  filter(SepsisLabel ==1)
+
+new_data %>%
+  filter(PatientID %in% sepsisPatient$PatientID) %>%
+  pivot_longer(3:5, names_to = "Measures" , values_to = "Values") %>%
+  ggplot(aes(x= obsTime, y= Values, color= PatientID)) +
+  scale_x_datetime(date_labels = "%Y-%m-%d %H:%M:%S")+
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ Measures, ncol=3)+
+  labs(Title = "Changes in clinical measures over time", x = "obsTime", y = "Value")+
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90))
+  
+# new_data %>%
+#   group_by(PatientID) %>%
+#   filter(obsTime == max(obsTime)) %>% 
+#   filter(SepsisLabel == 1) %>% 
+#   ungroup() %>% 
+#   {filter(new_data, PatientID %in% .$PatientID)} %>%
+#   pivot_longer(3:5, names_to = "Measures" , values_to = "Values") %>%
+#   ggplot(aes(x= ICULOS, y= Values, color= PatientID)) +
+#   geom_point() +
+#   geom_line() +
+#   facet_wrap(~ Measures, ncol=3) +
+#   labs(Title = "Changes in clinical measures over time", x = "Time in ICU", y = "Value")+
+#   theme(legend.position = "none")
+```
+
+#### A table showing the *change* in heart rate, temperature, and respiratory rate between the last two measurements for all patients
+
+```{r}
+#| echo: false
+
+new_data %>%
+  group_by(PatientID) %>%
+  mutate(changeHR = HR - lag(HR, n=1, default= NA),
+         changeTemp = Temp - lag(Temp, n=1, default= NA),
+         changeResp = Resp - lag(Resp, n=1, default= NA)) %>%
+  filter(obsTime == max(obsTime)) %>%
+  ungroup() %>%
+  gt() %>%
+    tab_style(
+    style = cell_fill(color = "pink"),
+    locations = cells_body(
+      columns = changeHR,
+      rows = changeHR < 0)) %>%
+        
+    tab_style(
+    style = cell_fill(color = "pink"),
+    locations = cells_body(
+      columns = changeTemp,
+      rows = changeTemp < 0)) %>%
+  
+      tab_style(
+    style = cell_fill(color = "pink"),
+    locations = cells_body(
+      columns = changeResp,
+      rows = changeResp < 0)) %>%
+  
+  tab_style(
+    style = cell_fill(color = "green"),
+    locations = cells_body(
+      columns = changeHR,
+      rows = changeHR > 0)) %>%
+  
+  tab_style(
+    style = cell_fill(color = "green"),
+    locations = cells_body(
+      columns = changeTemp,
+      rows = changeTemp > 0)) %>%
+  
+  tab_style(
+    style = cell_fill(color = "green"),
+    locations = cells_body(
+      columns = changeResp,
+      rows = changeResp > 0)) %>%
+  
+    tab_style(
+    style = cell_fill(color = "yellow"),
+    locations = cells_body(
+      columns = changeHR,
+      rows = changeHR == 0)) %>%
+  
+  tab_style(
+    style = cell_fill(color = "yellow"),
+    locations = cells_body(
+      columns = changeTemp,
+      rows = changeTemp == 0)) %>%
+  
+  tab_style(
+    style = cell_fill(color = "yellow"),
+    locations = cells_body(
+      columns = changeResp,
+      rows = changeResp ==0 )) %>%
+  
+      tab_style(
+    style = cell_fill(color = "grey"),
+    locations = cells_body(
+      columns = changeHR,
+      rows = is.na(changeHR))) %>%
+  
+  tab_style(
+    style = cell_fill(color = "grey"),
+    locations = cells_body(
+      columns = changeTemp,
+      rows = is.na(changeTemp))) %>%
+  
+  tab_style(
+    style = cell_fill(color = "grey"),
+    locations = cells_body(
+      columns = changeResp,
+      rows = is.na(changeResp)))
+
+```
